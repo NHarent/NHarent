@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Foto → HTML Embed Tool</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Segoe UI, sans-serif; background: #f0f2f5; color: #1a1a1a; padding: 2rem; }
+  h1 { margin-bottom: 0.5rem; }
+  p.sub { color: #666; margin-bottom: 2rem; }
+  .drop-zone {
+    border: 3px dashed #aaa; border-radius: 12px; padding: 3rem;
+    text-align: center; background: #fff; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 2rem;
+  }
+  .drop-zone:hover, .drop-zone.active { border-color: #003366; background: #e8f0fe; }
+  .drop-zone input { display: none; }
+  .preview { margin-bottom: 1.5rem; }
+  .preview img { max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .info { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  .controls { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .controls label { font-weight: 600; }
+  .controls select, .controls input[type=range] { padding: 0.3rem; }
+  .output-area { position: relative; }
+  textarea {
+    width: 100%; height: 180px; font-family: Consolas, monospace; font-size: 0.8rem;
+    border: 1px solid #ccc; border-radius: 8px; padding: 1rem; resize: vertical;
+  }
+  button {
+    background: #003366; color: #fff; border: none; padding: 0.7rem 1.5rem;
+    border-radius: 6px; cursor: pointer; font-size: 0.95rem; margin-top: 0.5rem;
+  }
+  button:hover { background: #004a99; }
+  .copied { background: #28a745 !important; }
+  .hidden { display: none; }
+  .tabs { display: flex; gap: 0; margin-bottom: -1px; }
+  .tab {
+    padding: 0.5rem 1.2rem; border: 1px solid #ccc; background: #eee;
+    cursor: pointer; border-radius: 8px 8px 0 0; font-size: 0.9rem;
+  }
+  .tab.active { background: #fff; border-bottom-color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Foto → HTML Embed</h1>
+<p class="sub">Sleep een foto hierin of klik om te selecteren. Je krijgt kant-en-klare HTML-code.</p>
+
+<div class="drop-zone" id="dropZone">
+  <input type="file" id="fileInput" accept="image/*">
+  <p style="font-size:1.2rem; margin-bottom:0.5rem;">📷 Sleep foto hier</p>
+  <p style="color:#888;">of klik om te kiezen</p>
+</div>
+
+<div id="result" class="hidden">
+  <div class="preview"><img id="previewImg" alt="Preview"></div>
+
+  <div class="info" id="info"></div>
+
+  <div class="controls">
+    <label>Max breedte:</label>
+    <select id="maxWidth">
+      <option value="0">Origineel</option>
+      <option value="400">400px</option>
+      <option value="600" selected>600px</option>
+      <option value="800">800px</option>
+      <option value="1024">1024px</option>
+    </select>
+
+    <label>Kwaliteit:</label>
+    <input type="range" id="quality" min="10" max="100" value="75" style="width:120px;">
+    <span id="qualityVal">75%</span>
+
+    <label>Format:</label>
+    <select id="format">
+      <option value="image/webp">WebP (kleinst)</option>
+      <option value="image/jpeg" selected>JPEG</option>
+      <option value="image/png">PNG</option>
+    </select>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="img">IMG tag</div>
+    <div class="tab" data-tab="bg">CSS Background</div>
+    <div class="tab" data-tab="raw">Alleen Base64</div>
+  </div>
+
+  <div class="output-area">
+    <textarea id="output" readonly></textarea>
+    <button id="copyBtn" onclick="copyOutput()">Kopieer naar klembord</button>
+  </div>
+</div>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const previewImg = document.getElementById('previewImg');
+const output = document.getElementById('output');
+const qualitySlider = document.getElementById('quality');
+const qualityVal = document.getElementById('qualityVal');
+const maxWidthSel = document.getElementById('maxWidth');
+const formatSel = document.getElementById('format');
+const info = document.getElementById('info');
+
+let currentFile = null;
+let currentTab = 'img';
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('active'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('active');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+qualitySlider.addEventListener('input', () => { qualityVal.textContent = qualitySlider.value + '%'; processImage(); });
+maxWidthSel.addEventListener('change', processImage);
+formatSel.addEventListener('change', processImage);
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentTab = tab.dataset.tab;
+    processImage();
+  });
+});
+
+function handleFile(file) {
+  if (!file.type.startsWith('image/')) { alert('Selecteer een afbeelding'); return; }
+  currentFile = file;
+  processImage();
+}
+
+function processImage() {
+  if (!currentFile) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const maxW = parseInt(maxWidthSel.value) || img.width;
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+
+      const fmt = formatSel.value;
+      const q = qualitySlider.value / 100;
+      const dataUrl = canvas.toDataURL(fmt, q);
+
+      previewImg.src = dataUrl;
+      document.getElementById('result').classList.remove('hidden');
+
+      const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
+      info.textContent = `${w}×${h}px | ~${sizeKB} KB embedded | origineel: ${img.width}×${img.height}px`;
+
+      if (currentTab === 'img') {
+        output.value = `<img src="${dataUrl}" alt="Beschrijving" style="max-width:100%; height:auto; border-radius:8px;">`;
+      } else if (currentTab === 'bg') {
+        output.value = `<div style="width:${w}px; height:${h}px; background:url('${dataUrl}') center/cover no-repeat; border-radius:8px;"></div>`;
+      } else {
+        output.value = dataUrl;
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(currentFile);
+}
+
+function copyOutput() {
+  output.select();
+  document.execCommand('copy');
+  const btn = document.getElementById('copyBtn');
+  btn.textContent = 'Gekopieerd!';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Kopieer naar klembord'; btn.classList.remove('copied'); }, 2000);
+}
+</script>
+</body>
+</html>
