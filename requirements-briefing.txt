@@ -1,1 +1,3 @@
 python-dotenv>=1.0.0
+# Op Windows ook nodig:
+# pip install pywin32

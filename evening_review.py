@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
-Avond Review - Stuurt een overzicht van morgen's agenda en openstaande taken.
-Helpt je de volgende dag voorbereiden.
+Avond Review - Stuurt een overzicht van morgen's agenda, urgente taken,
+en gevlagde mails. Helpt je de volgende dag voorbereiden.
 
 Gebruik: python evening_review.py
 """
 
 import datetime
 from briefing_utils import (
-    get_events_for_date, get_all_tasks, format_date_nl, send_mail_via_outlook,
+    get_events_for_date, get_all_tasks, get_flagged_emails, get_free_blocks,
+    format_date_nl, send_mail_via_outlook,
 )
 
 
 def build_review_html(
-    today_events: list[dict],
     tomorrow_events: list[dict],
     tasks: list[dict],
+    flagged: list[dict],
+    free_blocks: list[dict],
 ) -> str:
     """Genereer een iPhone-vriendelijke HTML avond review."""
     today = datetime.date.today()
@@ -23,59 +25,64 @@ def build_review_html(
     date_str = format_date_nl(today)
     tomorrow_str = format_date_nl(tomorrow)
 
-    # Samenvatting vandaag
-    today_summary = f"{len(today_events)} afspraken gehad" if today_events else "Geen afspraken gehad"
+    # Eerste afspraak morgen
+    first_note = ""
+    timed = [e for e in tomorrow_events if not e["is_all_day"]]
+    if timed:
+        first = timed[0]
+        first_note = f'<p style="margin:8px 0 0;font-size:13px;opacity:0.9;">Eerste afspraak morgen om <strong>{first["start_time"]}</strong> · {first["subject"]}</p>'
 
     # Agenda morgen
-    if tomorrow_events:
-        agenda_rows = ""
-        for ev in tomorrow_events:
-            subject = ev["subject"] or "(geen onderwerp)"
-            if ev["is_all_day"]:
-                time_str = "Hele dag"
-            else:
-                time_str = f'{ev["start_time"]} – {ev["end_time"]}'
+    agenda_section = _build_agenda_html(tomorrow_events)
 
-            location = ev["location"]
-            loc_html = f'<div style="color:#666;font-size:13px;">{location}</div>' if location else ""
+    # Vrije blokken morgen
+    free_section = ""
+    if free_blocks:
+        items = ""
+        for block in free_blocks:
+            hours = block["duration_min"] // 60
+            mins = block["duration_min"] % 60
+            dur = f"{hours}u{mins:02d}" if hours else f"{mins} min"
+            items += f'<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;font-size:13px;padding:4px 10px;border-radius:12px;margin:3px 4px 3px 0;">{block["start"]} – {block["end"]} ({dur})</span>'
+        free_section = f"""
+        <div style="background:#fff;padding:12px 16px;border-bottom:1px solid #e0e0e0;">
+            <h2 style="margin:0 0 6px;font-size:14px;color:#2e7d32;">Vrije blokken morgen</h2>
+            <div>{items}</div>
+        </div>"""
 
-            agenda_rows += f"""
-            <tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #eee;white-space:nowrap;vertical-align:top;color:#555;font-size:14px;width:100px;">{time_str}</td>
-                <td style="padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top;">
-                    <div style="font-size:15px;font-weight:500;">{subject}</div>
-                    {loc_html}
-                </td>
-            </tr>"""
-
-        agenda_section = f'<table style="width:100%;border-collapse:collapse;margin-top:8px;">{agenda_rows}</table>'
-    else:
-        agenda_section = '<p style="color:#888;padding:12px;font-size:14px;">Geen afspraken morgen</p>'
-
-    # Taken: filter op urgent (vandaag/te laat + morgen)
-    urgent_tasks = []
-    other_tasks = []
+    # Urgente taken (deadline vandaag/morgen/te laat)
+    urgent = []
+    other = []
     for task in tasks:
         due = task["due_date"]
         if due:
             try:
                 due_date = datetime.date.fromisoformat(due)
                 if due_date <= tomorrow:
-                    urgent_tasks.append(task)
+                    urgent.append(task)
                     continue
             except ValueError:
                 pass
-        other_tasks.append(task)
+        other.append(task)
 
-    urgent_section = _build_compact_tasks(urgent_tasks, today, "Geen urgente taken")
-    other_section = _build_compact_tasks(other_tasks[:10], today, "Geen overige taken")
+    urgent_section = _build_task_list(urgent, today, "Geen urgente taken")
+    other_section = _build_task_list(other[:10], today, "Geen overige taken")
 
-    # Eerste afspraak morgen
-    first_event_note = ""
-    if tomorrow_events:
-        first = tomorrow_events[0]
-        if not first["is_all_day"]:
-            first_event_note = f'<p style="color:#1565c0;font-size:14px;margin:8px 0 0;">Eerste afspraak morgen om <strong>{first["start_time"]}</strong></p>'
+    # Gevlagde mails
+    flagged_section = ""
+    if flagged:
+        items = ""
+        for mail in flagged[:5]:
+            items += f"""
+            <div style="padding:6px 12px;border-bottom:1px solid #eee;font-size:13px;">
+                <div>{mail["subject"]}</div>
+                <div style="color:#888;font-size:12px;">{mail["sender"]} · {mail["received"]}</div>
+            </div>"""
+        flagged_section = f"""
+        <div style="background:#fff;padding:16px;border-bottom:1px solid #e0e0e0;">
+            <h2 style="margin:0 0 4px;font-size:16px;color:#e65100;">Gevlagde mails ({len(flagged)})</h2>
+            <div style="margin-top:8px;">{items}</div>
+        </div>"""
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -85,10 +92,11 @@ def build_review_html(
 </head>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
     <div style="max-width:600px;margin:0 auto;padding:16px;">
+
         <div style="background:linear-gradient(135deg,#4a148c,#311b92);color:#fff;padding:20px 16px;border-radius:12px 12px 0 0;">
             <h1 style="margin:0;font-size:22px;font-weight:600;">Avond Review</h1>
             <p style="margin:4px 0 0;font-size:14px;opacity:0.9;">{date_str}</p>
-            {first_event_note}
+            {first_note}
         </div>
 
         <div style="background:#fff;padding:16px;border-bottom:1px solid #e0e0e0;">
@@ -96,10 +104,14 @@ def build_review_html(
             {agenda_section}
         </div>
 
+        {free_section}
+
         <div style="background:#fff;padding:16px;border-bottom:1px solid #e0e0e0;">
             <h2 style="margin:0 0 4px;font-size:16px;color:#d32f2f;">Urgent (deadline vandaag/morgen)</h2>
             {urgent_section}
         </div>
+
+        {flagged_section}
 
         <div style="background:#fff;padding:16px;border-radius:0 0 12px 12px;">
             <h2 style="margin:0 0 4px;font-size:16px;color:#4a148c;">Overige taken</h2>
@@ -115,16 +127,46 @@ def build_review_html(
     return html
 
 
-def _build_compact_tasks(tasks: list[dict], today: datetime.date, empty_msg: str) -> str:
-    """Bouw compacte HTML voor een lijst taken."""
+def _build_agenda_html(events: list[dict]) -> str:
+    if not events:
+        return '<p style="color:#888;padding:12px;font-size:14px;">Geen afspraken</p>'
+
+    rows = ""
+    for ev in events:
+        subject = ev["subject"]
+        time_str = "Hele dag" if ev["is_all_day"] else f'{ev["start_time"]} – {ev["end_time"]}'
+        location = ev["location"]
+        loc_html = f'<div style="color:#666;font-size:13px;">{location}</div>' if location else ""
+
+        attendees = ev.get("attendees", [])
+        att_html = ""
+        if attendees:
+            names = ", ".join(attendees[:4])
+            if len(attendees) > 4:
+                names += f" +{len(attendees) - 4}"
+            att_html = f'<div style="color:#888;font-size:12px;">{names}</div>'
+
+        rows += f"""
+        <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;white-space:nowrap;vertical-align:top;color:#555;font-size:14px;width:100px;">{time_str}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top;">
+                <div style="font-size:15px;font-weight:500;">{subject}</div>
+                {loc_html}
+                {att_html}
+            </td>
+        </tr>"""
+
+    return f'<table style="width:100%;border-collapse:collapse;margin-top:8px;">{rows}</table>'
+
+
+def _build_task_list(tasks: list[dict], today: datetime.date, empty_msg: str) -> str:
     if not tasks:
         return f'<p style="color:#888;padding:12px;font-size:14px;">{empty_msg}</p>'
 
     items = ""
     for task in tasks:
-        title = task["title"] or "(geen titel)"
+        title = task["title"]
         due = task["due_date"]
-        source = task.get("source", "")
 
         due_str = ""
         if due:
@@ -139,17 +181,13 @@ def _build_compact_tasks(tasks: list[dict], today: datetime.date, empty_msg: str
             except ValueError:
                 pass
 
-        priority_dot = ""
-        if task["priority"] == "priority high":
-            priority_dot = '<span style="color:#d32f2f;font-weight:bold;">! </span>'
-
-        source_icon = ""
-        if source == "reminders":
-            source_icon = '<span style="background:#fff3e0;color:#e65100;font-size:10px;padding:1px 5px;border-radius:8px;margin-left:4px;">Siri</span>'
+        prio_dot = ""
+        if task["priority"] == "high":
+            prio_dot = '<span style="color:#d32f2f;font-weight:bold;">! </span>'
 
         items += f"""
         <div style="padding:6px 12px;border-bottom:1px solid #eee;font-size:14px;">
-            {priority_dot}{title}{due_str}{source_icon}
+            {prio_dot}{title}{due_str}
         </div>"""
 
     return f'<div style="margin-top:8px;">{items}</div>'
@@ -161,16 +199,19 @@ def main():
     today = datetime.date.today()
     tomorrow = today + datetime.timedelta(days=1)
 
-    today_events = get_events_for_date(today)
-    print(f"  {len(today_events)} afspraken vandaag")
-
     tomorrow_events = get_events_for_date(tomorrow)
     print(f"  {len(tomorrow_events)} afspraken morgen")
 
     tasks = get_all_tasks()
-    print(f"  {len(tasks)} openstaande taken (Outlook + Reminders)")
+    print(f"  {len(tasks)} openstaande taken")
 
-    html = build_review_html(today_events, tomorrow_events, tasks)
+    flagged = get_flagged_emails()
+    print(f"  {len(flagged)} gevlagde mails")
+
+    free_blocks = get_free_blocks(tomorrow_events)
+    print(f"  {len(free_blocks)} vrije blokken morgen")
+
+    html = build_review_html(tomorrow_events, tasks, flagged, free_blocks)
 
     subject = f"Avond Review – {format_date_nl(today)}"
     send_mail_via_outlook(subject, html)
