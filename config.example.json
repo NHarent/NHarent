@@ -1,0 +1,32 @@
+{
+  "search": {
+    "plaats": "Amsterdam",
+    "straal_km": 10,
+    "min_prijs": 200000,
+    "max_prijs": 600000,
+    "min_oppervlakte": 50,
+    "min_kamers": 2,
+    "woningtype": [
+      "appartement",
+      "tussenwoning",
+      "hoekwoning",
+      "vrijstaand",
+      "twee-onder-een-kap",
+      "penthouse",
+      "grachtenpand"
+    ]
+  },
+  "notifications": {
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "email_smtp_host": "",
+    "email_smtp_port": 587,
+    "email_from": "",
+    "email_to": "",
+    "email_password": "",
+    "ntfy_topic": "mijn-woningmonitor",
+    "ntfy_server": "https://ntfy.sh"
+  },
+  "check_interval_minutes": 15,
+  "db_path": "woningmonitor.db"
+}
