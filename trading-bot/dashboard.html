@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Trading Bot Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: #0a0e17; color: #e0e6ed; padding: 2rem; min-height: 100vh; }
+  h1 { font-size: 1.4rem; color: #7eb8f7; margin-bottom: .3rem; }
+  .sub { color: #5a6a7a; font-size: .85rem; margin-bottom: 2rem; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+
+  .card {
+    background: #111827; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 1.2rem; position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  }
+  .card.positive::before { background: linear-gradient(90deg, #10b981, #34d399); }
+  .card.negative::before { background: linear-gradient(90deg, #ef4444, #f87171); }
+  .card .label { font-size: .75rem; color: #5a6a7a; text-transform: uppercase; letter-spacing: .05em; }
+  .card .value { font-size: 1.6rem; font-weight: 700; margin-top: .3rem; }
+  .card .detail { font-size: .8rem; color: #5a6a7a; margin-top: .2rem; }
+
+  .positive .value { color: #34d399; }
+  .negative .value { color: #f87171; }
+
+  .section { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .section h2 { font-size: 1rem; color: #7eb8f7; margin-bottom: 1rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { text-align: left; color: #5a6a7a; font-weight: 500; padding: .5rem .8rem; border-bottom: 1px solid #1e293b; }
+  td { padding: .5rem .8rem; border-bottom: 1px solid #1e293b10; }
+  tr:hover td { background: #1e293b40; }
+  .buy { color: #34d399; }
+  .sell { color: #f87171; }
+
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-right: .5rem; animation: pulse 2s infinite; }
+  .pulse.offline { background: #ef4444; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+  .status-bar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; font-size: .85rem; }
+  .status-bar .time { color: #5a6a7a; }
+
+  .chart-container { height: 120px; display: flex; align-items: flex-end; gap: 2px; padding-top: 1rem; }
+  .chart-bar { flex: 1; min-width: 4px; background: #3b82f6; border-radius: 2px 2px 0 0; transition: height .3s; position: relative; }
+  .chart-bar.sell-bar { background: #f87171; }
+  .chart-bar:hover { opacity: .8; }
+  .chart-bar:hover::after {
+    content: attr(data-label); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #e0e6ed; padding: .2rem .5rem; border-radius: 4px; font-size: .7rem; white-space: nowrap;
+  }
+
+  .prompt-section { background: #0f1729; border: 1px solid #1e3a5f; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .prompt-section h2 { color: #f59e0b; }
+  .prompt-box {
+    background: #0a0e17; border: 1px solid #1e293b; border-radius: 8px; padding: 1rem;
+    font-family: 'SF Mono', monospace; font-size: .82rem; line-height: 1.6;
+    color: #a3b8cc; white-space: pre-wrap; cursor: pointer; position: relative;
+  }
+  .prompt-box:hover { border-color: #3b82f6; }
+  .prompt-box .copy-hint {
+    position: absolute; top: .5rem; right: .5rem; font-size: .7rem;
+    background: #1e293b; padding: .2rem .5rem; border-radius: 4px; color: #5a6a7a;
+  }
+  .prompt-box.copied .copy-hint { color: #34d399; }
+
+  .file-drop {
+    border: 2px dashed #1e293b; border-radius: 12px; padding: 2rem; text-align: center;
+    color: #5a6a7a; cursor: pointer; transition: border-color .2s;
+  }
+  .file-drop:hover, .file-drop.active { border-color: #3b82f6; color: #7eb8f7; }
+  .file-drop input { display: none; }
+
+  @media (max-width: 600px) {
+    body { padding: 1rem; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    .card .value { font-size: 1.2rem; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Trading Bot Dashboard</h1>
+<p class="sub">Real-time overzicht van je Bitvavo trading bot</p>
+
+<div class="status-bar">
+  <span><span class="pulse" id="pulse"></span><span id="status-text">Wachten op data...</span></span>
+  <span class="time" id="last-update"></span>
+</div>
+
+<div class="grid">
+  <div class="card" id="card-total">
+    <div class="label">Totaal vermogen</div>
+    <div class="value" id="total">—</div>
+    <div class="detail" id="capital-detail"></div>
+  </div>
+  <div class="card" id="card-profit">
+    <div class="label">Winst / Verlies</div>
+    <div class="value" id="profit">—</div>
+    <div class="detail" id="profit-pct"></div>
+  </div>
+  <div class="card">
+    <div class="label">Huidige prijs</div>
+    <div class="value" id="price">—</div>
+    <div class="detail" id="pair"></div>
+  </div>
+  <div class="card">
+    <div class="label">Open orders</div>
+    <div class="value" id="orders">—</div>
+    <div class="detail" id="strategy"></div>
+  </div>
+  <div class="card">
+    <div class="label">EUR beschikbaar</div>
+    <div class="value" id="eur">—</div>
+  </div>
+  <div class="card">
+    <div class="label">Crypto waarde</div>
+    <div class="value" id="asset-eur">—</div>
+    <div class="detail" id="asset-amount"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Recente trades</h2>
+  <table>
+    <thead><tr><th>Tijd</th><th>Type</th><th>Hoeveelheid</th><th>Prijs</th><th>Fee</th></tr></thead>
+    <tbody id="trades-body"><tr><td colspan="5" style="color:#5a6a7a">Geen data geladen</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Vermogensverloop</h2>
+  <div class="chart-container" id="chart"></div>
+  <div style="color:#5a6a7a;font-size:.75rem;margin-top:.5rem">Gebaseerd op opgeslagen snapshots (elke update)</div>
+</div>
+
+<div class="prompt-section">
+  <h2>Claude Dispatch Prompt</h2>
+  <p style="color:#5a6a7a;font-size:.85rem;margin-bottom:1rem">
+    Kopieer deze prompt en gebruik hem als scheduled trigger in Claude Code.
+    Past automatisch de status.json data in.
+  </p>
+  <div class="prompt-box" id="prompt-box" onclick="copyPrompt()">
+    <span class="copy-hint" id="copy-hint">klik om te kopiëren</span>
+<span id="prompt-text">Je bent een trading bot monitor voor een Bitvavo grid-trading bot.
+
+Lees het bestand status.json in de trading-bot directory.
+Analyseer de huidige status en geef een kort rapport:
+
+1. PORTFOLIO STATUS
+   - Totaal vermogen en winst/verlies sinds start
+   - Vergelijk met vorige check (als er history is)
+
+2. TRADES ANALYSE
+   - Hoeveel trades vandaag
+   - Gemiddelde winst per trade
+   - Zijn er opvallende patronen
+
+3. RISICO CHECK
+   - Is de drawdown acceptabel (&lt;5%)?
+   - Zijn er te veel open orders?
+   - Draait de bot nog (check timestamp)?
+
+4. AANBEVELING
+   - Moet de grid worden aangepast?
+   - Moet de spacing of order size veranderen?
+   - Eventuele waarschuwingen
+
+Als de bot langer dan 10 minuten geen update heeft: WAARSCHUW dat de bot mogelijk is gestopt.
+Als het verlies groter is dan 5%: WAARSCHUW en adviseer om de bot te pauzeren.
+
+Houd het rapport kort en bondig (max 10 regels).
+Schrijf in het Nederlands.</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Status laden</h2>
+  <p style="color:#5a6a7a;font-size:.85rem;margin-bottom:1rem">
+    Sleep je <code>status.json</code> hierin, of klik om te selecteren.
+    Het dashboard update automatisch als je een nieuw bestand laadt.
+  </p>
+  <div class="file-drop" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" accept=".json">
+    Sleep status.json hier of klik om te selecteren
+  </div>
+  <p style="color:#5a6a7a;font-size:.75rem;margin-top:.8rem">
+    Tip: laat <code>status_writer.py</code> draaien op je MacBook en open dit bestand
+    periodiek, of gebruik de File API hieronder.
+  </p>
+</div>
+
+<div class="section" style="margin-top:1rem">
+  <h2>Auto-refresh via lokaal bestand</h2>
+  <p style="color:#5a6a7a;font-size:.85rem;margin-bottom:.5rem">
+    Als je dit dashboard lokaal opent (file://) en status.json in dezelfde map staat:
+  </p>
+  <button onclick="startAutoRefresh()" style="
+    background:#1e293b;color:#7eb8f7;border:1px solid #2d3b4f;padding:.5rem 1rem;
+    border-radius:6px;cursor:pointer;font-family:inherit;font-size:.85rem;
+  ">Start auto-refresh (elke 30s)</button>
+  <span id="auto-status" style="color:#5a6a7a;font-size:.8rem;margin-left:.5rem"></span>
+</div>
+
+<script>
+const history = JSON.parse(localStorage.getItem('bot-history') || '[]');
+
+function loadStatus(data) {
+  // Store in history
+  history.push({ time: data.timestamp, total: data.total_eur, profit: data.profit_eur });
+  if (history.length > 200) history.shift();
+  localStorage.setItem('bot-history', JSON.stringify(history));
+
+  // Status indicator
+  const pulse = document.getElementById('pulse');
+  const statusText = document.getElementById('status-text');
+  const lastTs = new Date(data.timestamp);
+  const diffMin = (Date.now() - lastTs.getTime()) / 60000;
+
+  if (diffMin < 5) {
+    pulse.className = 'pulse';
+    statusText.textContent = 'Bot actief';
+  } else {
+    pulse.className = 'pulse offline';
+    statusText.textContent = `Laatste update ${Math.round(diffMin)} min geleden`;
+  }
+  document.getElementById('last-update').textContent = lastTs.toLocaleString('nl-NL');
+
+  // Cards
+  document.getElementById('total').textContent = `€${data.total_eur.toFixed(2)}`;
+  document.getElementById('capital-detail').textContent = `Startkapitaal: €${data.capital}`;
+
+  const profitCard = document.getElementById('card-profit');
+  const profitEl = document.getElementById('profit');
+  const profitPctEl = document.getElementById('profit-pct');
+  profitEl.textContent = `€${data.profit_eur >= 0 ? '+' : ''}${data.profit_eur.toFixed(2)}`;
+  profitPctEl.textContent = `${data.profit_pct >= 0 ? '+' : ''}${data.profit_pct.toFixed(1)}%`;
+  profitCard.className = `card ${data.profit_eur >= 0 ? 'positive' : 'negative'}`;
+
+  const totalCard = document.getElementById('card-total');
+  totalCard.className = `card ${data.profit_eur >= 0 ? 'positive' : 'negative'}`;
+
+  document.getElementById('price').textContent = `€${data.price.toLocaleString('nl-NL')}`;
+  document.getElementById('pair').textContent = data.pair;
+  document.getElementById('orders').textContent = data.open_orders;
+  document.getElementById('strategy').textContent = `${data.strategy} — ${data.trades_today} trades vandaag`;
+  document.getElementById('eur').textContent = `€${data.balance_eur.toFixed(2)}`;
+  document.getElementById('asset-eur').textContent = `€${data.balance_asset_eur.toFixed(2)}`;
+  document.getElementById('asset-amount').textContent = `${data.balance_asset} ${data.pair.split('-')[0]}`;
+
+  // Trades table
+  const tbody = document.getElementById('trades-body');
+  if (data.recent_trades && data.recent_trades.length > 0) {
+    tbody.innerHTML = data.recent_trades.map(t => `
+      <tr>
+        <td>${t.time}</td>
+        <td class="${t.side}">${t.side === 'buy' ? 'KOOP' : 'VERKOOP'}</td>
+        <td>${parseFloat(t.amount).toFixed(6)}</td>
+        <td>€${parseFloat(t.price).toLocaleString('nl-NL')}</td>
+        <td>€${parseFloat(t.fee).toFixed(4)}</td>
+      </tr>
+    `).join('');
+  } else {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#5a6a7a">Nog geen trades</td></tr>';
+  }
+
+  // Chart
+  renderChart();
+}
+
+function renderChart() {
+  const chart = document.getElementById('chart');
+  if (history.length < 2) {
+    chart.innerHTML = '<span style="color:#5a6a7a;font-size:.8rem">Meer data nodig voor grafiek...</span>';
+    return;
+  }
+
+  const values = history.map(h => h.total);
+  const min = Math.min(...values) * 0.98;
+  const max = Math.max(...values) * 1.02;
+  const range = max - min || 1;
+
+  chart.innerHTML = history.map((h, i) => {
+    const pct = ((h.total - min) / range) * 100;
+    const prev = i > 0 ? history[i-1].total : h.total;
+    const cls = h.total >= prev ? '' : 'sell-bar';
+    const time = new Date(h.time).toLocaleTimeString('nl-NL', {hour:'2-digit',minute:'2-digit'});
+    return `<div class="chart-bar ${cls}" style="height:${Math.max(pct, 2)}%" data-label="€${h.total.toFixed(2)} (${time})"></div>`;
+  }).join('');
+}
+
+// File drop
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('active'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('active');
+  handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      loadStatus(data);
+      dropZone.textContent = `Geladen: ${file.name}`;
+    } catch (err) {
+      dropZone.textContent = `Fout bij laden: ${err.message}`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Auto-refresh via fetch (werkt alleen als lokaal gehost)
+let autoInterval = null;
+function startAutoRefresh() {
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; document.getElementById('auto-status').textContent = 'Gestopt'; return; }
+  const doFetch = () => {
+    fetch('status.json?' + Date.now())
+      .then(r => r.json())
+      .then(data => { loadStatus(data); document.getElementById('auto-status').textContent = `OK — ${new Date().toLocaleTimeString('nl-NL')}`; })
+      .catch(e => { document.getElementById('auto-status').textContent = `Fout: ${e.message}`; });
+  };
+  doFetch();
+  autoInterval = setInterval(doFetch, 30000);
+  document.getElementById('auto-status').textContent = 'Actief...';
+}
+
+// Copy prompt
+function copyPrompt() {
+  const text = document.getElementById('prompt-text').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const box = document.getElementById('prompt-box');
+    const hint = document.getElementById('copy-hint');
+    box.classList.add('copied');
+    hint.textContent = 'gekopieerd!';
+    setTimeout(() => { box.classList.remove('copied'); hint.textContent = 'klik om te kopiëren'; }, 2000);
+  });
+}
+
+// Load demo data if available in localStorage
+const lastData = localStorage.getItem('bot-last-status');
+if (lastData) { try { loadStatus(JSON.parse(lastData)); } catch(e) {} }
+</script>
+</body>
+</html>
