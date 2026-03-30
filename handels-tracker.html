@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Handels Tracker — Arbitrage Tool</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #242836;
+    --border: #2e3347; --text: #e4e6f0; --muted: #8b8fa3;
+    --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+    --red: #ef4444; --red-bg: rgba(239,68,68,0.1);
+    --blue: #3b82f6; --blue-bg: rgba(59,130,246,0.1);
+    --yellow: #eab308; --yellow-bg: rgba(234,179,8,0.1);
+    --radius: 10px;
+  }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.3rem; }
+  .sub { color: var(--muted); margin-bottom: 1.5rem; font-size: 0.9rem; }
+
+  /* Dashboard Cards */
+  .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+  .card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.3rem; }
+  .card .value { font-size: 1.5rem; font-weight: 700; }
+  .card .value.positive { color: var(--green); }
+  .card .value.negative { color: var(--red); }
+  .card .detail { font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+  .tab { padding: 0.7rem 1.2rem; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 0.9rem; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.8rem; margin-bottom: 1rem; }
+  label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+  input, select { width: 100%; padding: 0.6rem 0.8rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; outline: none; }
+  input:focus, select:focus { border-color: var(--blue); }
+  .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover { background: #16a34a; }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .btn-danger:hover { background: var(--red-bg); }
+  .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+  .btn-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 0.6rem 0.8rem; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+  td { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:hover { background: var(--surface2); }
+  .status { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
+  .status-voorraad { background: var(--yellow-bg); color: var(--yellow); }
+  .status-verkocht { background: var(--green-bg); color: var(--green); }
+  .profit { font-weight: 600; }
+  .profit.pos { color: var(--green); }
+  .profit.neg { color: var(--red); }
+  .empty { text-align: center; padding: 3rem; color: var(--muted); }
+
+  /* Chart */
+  .chart-container { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+  .chart-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+  canvas { width: 100% !important; height: 250px !important; }
+
+  /* Prijscheck */
+  .price-result { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-top: 1rem; }
+  .price-bar { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin: 0.5rem 0; }
+  .price-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+
+  /* Export */
+  .export-section { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+
+  @media (max-width: 600px) {
+    body { padding: 1rem; }
+    .dashboard { grid-template-columns: 1fr 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Handels Tracker</h1>
+<p class="sub">Arbitrage & herverkoop — volg je inkoop, verkoop en winst</p>
+
+<!-- Dashboard -->
+<div class="dashboard">
+  <div class="card">
+    <div class="label">Totaal geinvesteerd</div>
+    <div class="value" id="totalInvested">€0</div>
+  </div>
+  <div class="card">
+    <div class="label">Totale omzet</div>
+    <div class="value" id="totalRevenue">€0</div>
+  </div>
+  <div class="card">
+    <div class="label">Netto winst</div>
+    <div class="value" id="totalProfit">€0</div>
+    <div class="detail" id="profitMargin">0% marge</div>
+  </div>
+  <div class="card">
+    <div class="label">Huidig kapitaal</div>
+    <div class="value" id="currentCapital">€0</div>
+    <div class="detail" id="capitalGrowth">+0% groei</div>
+  </div>
+  <div class="card">
+    <div class="label">In voorraad</div>
+    <div class="value" id="inStock">0</div>
+    <div class="detail" id="stockValue">€0 waarde</div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="trades">Transacties</div>
+  <div class="tab" data-tab="add">+ Toevoegen</div>
+  <div class="tab" data-tab="calculator">Winstcalculator</div>
+  <div class="tab" data-tab="chart">Grafiek</div>
+</div>
+
+<!-- Tab: Transacties -->
+<div class="tab-content active" id="tab-trades">
+  <div class="export-section">
+    <button class="btn btn-primary btn-sm" onclick="exportCSV()">Exporteer CSV</button>
+    <button class="btn btn-danger btn-sm" onclick="clearAll()">Alles wissen</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Product</th>
+          <th>Categorie</th>
+          <th>Inkoop</th>
+          <th>Platform</th>
+          <th>Verkoop</th>
+          <th>Kosten</th>
+          <th>Winst</th>
+          <th>Marge</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tradesBody"></tbody>
+    </table>
+    <div class="empty" id="emptyState">Nog geen transacties. Voeg er een toe via het tabblad "Toevoegen".</div>
+  </div>
+</div>
+
+<!-- Tab: Toevoegen -->
+<div class="tab-content" id="tab-add">
+  <div class="card" style="padding: 1.5rem;">
+    <h3 style="margin-bottom: 1rem; font-size: 1rem;">Nieuwe transactie</h3>
+    <div class="form-grid">
+      <div>
+        <label>Product naam</label>
+        <input type="text" id="fProduct" placeholder="bijv. AirPods Pro">
+      </div>
+      <div>
+        <label>Categorie</label>
+        <select id="fCategory">
+          <option value="Elektronica">Elektronica</option>
+          <option value="Kleding">Kleding</option>
+          <option value="Speelgoed">Speelgoed</option>
+          <option value="Boeken">Boeken</option>
+          <option value="Meubels">Meubels</option>
+          <option value="Gereedschap">Gereedschap</option>
+          <option value="Games">Games</option>
+          <option value="Overig">Overig</option>
+        </select>
+      </div>
+      <div>
+        <label>Inkoopprijs (€)</label>
+        <input type="number" id="fBuyPrice" step="0.01" min="0" placeholder="0.00">
+      </div>
+      <div>
+        <label>Inkoop platform</label>
+        <select id="fBuyPlatform">
+          <option value="Marktplaats">Marktplaats</option>
+          <option value="Vinted">Vinted</option>
+          <option value="Kringloop">Kringloop</option>
+          <option value="Facebook">Facebook Marketplace</option>
+          <option value="Winkel">Winkel/Uitverkoop</option>
+          <option value="Overig">Overig</option>
+        </select>
+      </div>
+      <div>
+        <label>Verkoopprijs (€) <small style="color:var(--muted)">— leeg = voorraad</small></label>
+        <input type="number" id="fSellPrice" step="0.01" min="0" placeholder="0.00">
+      </div>
+      <div>
+        <label>Verkoop platform</label>
+        <select id="fSellPlatform">
+          <option value="">— niet verkocht —</option>
+          <option value="Marktplaats">Marktplaats</option>
+          <option value="Vinted">Vinted</option>
+          <option value="eBay">eBay</option>
+          <option value="Bol.com">Bol.com</option>
+          <option value="Facebook">Facebook Marketplace</option>
+          <option value="Overig">Overig</option>
+        </select>
+      </div>
+      <div>
+        <label>Extra kosten (€) <small style="color:var(--muted)">— verzending etc.</small></label>
+        <input type="number" id="fCosts" step="0.01" min="0" placeholder="0.00" value="0">
+      </div>
+      <div>
+        <label>Datum</label>
+        <input type="date" id="fDate">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-success" onclick="addTrade()">Opslaan</button>
+      <button class="btn btn-primary" onclick="addTrade(); clearForm();">Opslaan & nieuw</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Winstcalculator -->
+<div class="tab-content" id="tab-calculator">
+  <div class="card" style="padding: 1.5rem;">
+    <h3 style="margin-bottom: 1rem; font-size: 1rem;">Winstcalculator</h3>
+    <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem;">Bereken of een deal de moeite waard is voordat je koopt.</p>
+    <div class="form-grid">
+      <div>
+        <label>Inkoopprijs (€)</label>
+        <input type="number" id="calcBuy" step="0.01" min="0" placeholder="25.00" oninput="calculate()">
+      </div>
+      <div>
+        <label>Verwachte verkoopprijs (€)</label>
+        <input type="number" id="calcSell" step="0.01" min="0" placeholder="50.00" oninput="calculate()">
+      </div>
+      <div>
+        <label>Platform kosten (%)</label>
+        <select id="calcPlatform" onchange="calculate()">
+          <option value="0">Marktplaats (gratis)</option>
+          <option value="5">Vinted (~5%)</option>
+          <option value="10">eBay (~10%)</option>
+          <option value="15">Bol.com (~15%)</option>
+          <option value="3">Facebook (3%)</option>
+        </select>
+      </div>
+      <div>
+        <label>Verzendkosten (€)</label>
+        <input type="number" id="calcShipping" step="0.01" min="0" placeholder="0" value="0" oninput="calculate()">
+      </div>
+    </div>
+    <div id="calcResult" class="price-result" style="display:none;"></div>
+  </div>
+
+  <div class="card" style="padding: 1.5rem; margin-top: 1rem;">
+    <h3 style="margin-bottom: 1rem; font-size: 1rem;">Compounding Simulator</h3>
+    <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem;">Zie hoe je kapitaal groeit als je winst herinvesteert.</p>
+    <div class="form-grid">
+      <div>
+        <label>Startkapitaal (€)</label>
+        <input type="number" id="simStart" value="100" oninput="simulate()">
+      </div>
+      <div>
+        <label>Gem. winstmarge (%)</label>
+        <input type="number" id="simMargin" value="50" oninput="simulate()">
+      </div>
+      <div>
+        <label>Cycli (handelsrondes)</label>
+        <input type="number" id="simCycles" value="10" min="1" max="50" oninput="simulate()">
+      </div>
+      <div>
+        <label>Herinvesteer (%)</label>
+        <input type="number" id="simReinvest" value="80" min="0" max="100" oninput="simulate()">
+      </div>
+    </div>
+    <div id="simResult" class="price-result"></div>
+  </div>
+</div>
+
+<!-- Tab: Grafiek -->
+<div class="tab-content" id="tab-chart">
+  <div class="chart-container">
+    <div class="chart-title">Kapitaalgroei over tijd</div>
+    <canvas id="chartCanvas"></canvas>
+  </div>
+  <div class="chart-container">
+    <div class="chart-title">Winst per categorie</div>
+    <canvas id="categoryChart"></canvas>
+  </div>
+</div>
+
+<script>
+// State
+let trades = JSON.parse(localStorage.getItem('ht_trades') || '[]');
+let startCapital = parseFloat(localStorage.getItem('ht_startcap') || '100');
+
+// Init
+document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'chart') drawCharts();
+    if (tab.dataset.tab === 'calculator') simulate();
+  });
+});
+
+function save() {
+  localStorage.setItem('ht_trades', JSON.stringify(trades));
+  localStorage.setItem('ht_startcap', startCapital);
+}
+
+function fmt(n) {
+  return '€' + n.toFixed(2).replace('.', ',');
+}
+
+function addTrade() {
+  const product = document.getElementById('fProduct').value.trim();
+  const buyPrice = parseFloat(document.getElementById('fBuyPrice').value) || 0;
+  if (!product || buyPrice <= 0) { alert('Vul product en inkoopprijs in.'); return; }
+
+  const sellPrice = parseFloat(document.getElementById('fSellPrice').value) || 0;
+  const costs = parseFloat(document.getElementById('fCosts').value) || 0;
+
+  trades.push({
+    id: Date.now(),
+    date: document.getElementById('fDate').value,
+    product,
+    category: document.getElementById('fCategory').value,
+    buyPrice,
+    buyPlatform: document.getElementById('fBuyPlatform').value,
+    sellPrice: sellPrice > 0 ? sellPrice : null,
+    sellPlatform: document.getElementById('fSellPlatform').value || null,
+    costs,
+    sold: sellPrice > 0
+  });
+
+  save();
+  render();
+  clearForm();
+
+  // Switch to trades tab
+  document.querySelectorAll('.tab')[0].click();
+}
+
+function clearForm() {
+  document.getElementById('fProduct').value = '';
+  document.getElementById('fBuyPrice').value = '';
+  document.getElementById('fSellPrice').value = '';
+  document.getElementById('fCosts').value = '0';
+  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+}
+
+function markSold(id) {
+  const trade = trades.find(t => t.id === id);
+  if (!trade) return;
+  const price = prompt('Verkoopprijs (€):');
+  if (price === null) return;
+  const platform = prompt('Platform (Marktplaats/Vinted/eBay/Bol.com):') || 'Overig';
+  const costs = prompt('Extra kosten (€, bijv. verzending):') || '0';
+  trade.sellPrice = parseFloat(price) || 0;
+  trade.sellPlatform = platform;
+  trade.costs += parseFloat(costs) || 0;
+  trade.sold = true;
+  save();
+  render();
+}
+
+function deleteTrade(id) {
+  if (!confirm('Transactie verwijderen?')) return;
+  trades = trades.filter(t => t.id !== id);
+  save();
+  render();
+}
+
+function clearAll() {
+  if (!confirm('Alle data wissen? Dit kan niet ongedaan worden.')) return;
+  trades = [];
+  save();
+  render();
+}
+
+function getProfit(t) {
+  if (!t.sold) return null;
+  return t.sellPrice - t.buyPrice - t.costs;
+}
+
+function getMargin(t) {
+  if (!t.sold || t.buyPrice === 0) return null;
+  return ((t.sellPrice - t.buyPrice - t.costs) / t.buyPrice) * 100;
+}
+
+function render() {
+  const body = document.getElementById('tradesBody');
+  const empty = document.getElementById('emptyState');
+
+  if (trades.length === 0) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    const sorted = [...trades].sort((a, b) => b.id - a.id);
+    body.innerHTML = sorted.map(t => {
+      const profit = getProfit(t);
+      const margin = getMargin(t);
+      return `<tr>
+        <td>${t.date}</td>
+        <td><strong>${esc(t.product)}</strong></td>
+        <td>${t.category}</td>
+        <td>${fmt(t.buyPrice)}</td>
+        <td>${t.buyPlatform}</td>
+        <td>${t.sold ? fmt(t.sellPrice) : '—'}</td>
+        <td>${t.costs > 0 ? fmt(t.costs) : '—'}</td>
+        <td class="profit ${profit !== null ? (profit >= 0 ? 'pos' : 'neg') : ''}">${profit !== null ? (profit >= 0 ? '+' : '') + fmt(profit) : '—'}</td>
+        <td>${margin !== null ? margin.toFixed(0) + '%' : '—'}</td>
+        <td><span class="status ${t.sold ? 'status-verkocht' : 'status-voorraad'}">${t.sold ? 'Verkocht' : 'Voorraad'}</span></td>
+        <td>
+          ${!t.sold ? `<button class="btn btn-success btn-sm" onclick="markSold(${t.id})">Verkocht</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteTrade(${t.id})" title="Verwijderen">&times;</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Dashboard
+  const sold = trades.filter(t => t.sold);
+  const inStock = trades.filter(t => !t.sold);
+  const totalInvested = trades.reduce((s, t) => s + t.buyPrice + t.costs, 0);
+  const totalRevenue = sold.reduce((s, t) => s + t.sellPrice, 0);
+  const totalProfit = sold.reduce((s, t) => s + getProfit(t), 0);
+  const stockValue = inStock.reduce((s, t) => s + t.buyPrice, 0);
+  const capital = startCapital + totalProfit - stockValue;
+
+  document.getElementById('totalInvested').textContent = fmt(totalInvested);
+  document.getElementById('totalRevenue').textContent = fmt(totalRevenue);
+
+  const profitEl = document.getElementById('totalProfit');
+  profitEl.textContent = (totalProfit >= 0 ? '+' : '') + fmt(totalProfit);
+  profitEl.className = 'value ' + (totalProfit >= 0 ? 'positive' : 'negative');
+
+  const marginPct = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0;
+  document.getElementById('profitMargin').textContent = marginPct + '% marge';
+
+  document.getElementById('currentCapital').textContent = fmt(Math.max(0, startCapital + totalRevenue - totalInvested));
+  const growth = startCapital > 0 ? (((startCapital + totalRevenue - totalInvested) / startCapital - 1) * 100).toFixed(1) : 0;
+  const growthEl = document.getElementById('capitalGrowth');
+  growthEl.textContent = (growth >= 0 ? '+' : '') + growth + '% groei';
+
+  document.getElementById('inStock').textContent = inStock.length;
+  document.getElementById('stockValue').textContent = fmt(stockValue) + ' waarde';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Calculator
+function calculate() {
+  const buy = parseFloat(document.getElementById('calcBuy').value) || 0;
+  const sell = parseFloat(document.getElementById('calcSell').value) || 0;
+  const platformPct = parseFloat(document.getElementById('calcPlatform').value) || 0;
+  const shipping = parseFloat(document.getElementById('calcShipping').value) || 0;
+
+  if (buy <= 0 || sell <= 0) { document.getElementById('calcResult').style.display = 'none'; return; }
+
+  const platformFee = sell * (platformPct / 100);
+  const totalCosts = buy + platformFee + shipping;
+  const profit = sell - totalCosts;
+  const margin = ((profit / buy) * 100);
+  const roi = ((profit / buy) * 100);
+
+  const good = profit > 0 && margin >= 20;
+  const ok = profit > 0 && margin >= 10;
+
+  let verdict, color;
+  if (good) { verdict = 'Goede deal!'; color = 'var(--green)'; }
+  else if (ok) { verdict = 'Matige deal'; color = 'var(--yellow)'; }
+  else if (profit > 0) { verdict = 'Lage marge'; color = 'var(--yellow)'; }
+  else { verdict = 'Verlies — niet doen'; color = 'var(--red)'; }
+
+  document.getElementById('calcResult').style.display = 'block';
+  document.getElementById('calcResult').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+      <span style="font-size:1.3rem; font-weight:700; color:${color}">${verdict}</span>
+      <span style="font-size:1.1rem; font-weight:600; color:${profit >= 0 ? 'var(--green)' : 'var(--red)'}">
+        ${profit >= 0 ? '+' : ''}${fmt(profit)} winst
+      </span>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; font-size:0.85rem;">
+      <div><span style="color:var(--muted)">Platformkosten</span><br><strong>${fmt(platformFee)}</strong></div>
+      <div><span style="color:var(--muted)">Totale kosten</span><br><strong>${fmt(totalCosts)}</strong></div>
+      <div><span style="color:var(--muted)">ROI</span><br><strong style="color:${roi >= 0 ? 'var(--green)' : 'var(--red)'}">${roi.toFixed(1)}%</strong></div>
+    </div>
+    <div class="price-bar" style="margin-top:1rem;">
+      <div class="price-fill" style="width:${Math.min(100, Math.max(0, margin))}%; background:${color};"></div>
+    </div>
+    <div style="font-size:0.75rem; color:var(--muted); margin-top:0.3rem;">${margin.toFixed(1)}% winstmarge — streef naar minimaal 30%</div>
+  `;
+}
+
+// Compounding simulator
+function simulate() {
+  const start = parseFloat(document.getElementById('simStart').value) || 100;
+  const margin = parseFloat(document.getElementById('simMargin').value) || 50;
+  const cycles = parseInt(document.getElementById('simCycles').value) || 10;
+  const reinvest = parseFloat(document.getElementById('simReinvest').value) || 80;
+
+  let capital = start;
+  let totalPocket = 0;
+  let rows = '';
+
+  for (let i = 1; i <= cycles; i++) {
+    const profit = capital * (margin / 100);
+    const pocket = profit * ((100 - reinvest) / 100);
+    totalPocket += pocket;
+    capital = capital + profit - pocket;
+    rows += `<tr>
+      <td>${i}</td>
+      <td>${fmt(capital)}</td>
+      <td class="profit pos">+${fmt(profit)}</td>
+      <td>${fmt(pocket)}</td>
+      <td>${fmt(totalPocket)}</td>
+    </tr>`;
+  }
+
+  document.getElementById('simResult').innerHTML = `
+    <div style="display:flex; justify-content:space-between; margin-bottom:1rem;">
+      <div><span style="color:var(--muted); font-size:0.8rem;">Eindkapitaal</span><br><strong style="font-size:1.3rem; color:var(--green);">${fmt(capital)}</strong></div>
+      <div><span style="color:var(--muted); font-size:0.8rem;">Totaal opgenomen</span><br><strong style="font-size:1.3rem;">${fmt(totalPocket)}</strong></div>
+      <div><span style="color:var(--muted); font-size:0.8rem;">Groei</span><br><strong style="font-size:1.3rem; color:var(--green);">${((capital / start - 1) * 100).toFixed(0)}%</strong></div>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Cyclus</th><th>Kapitaal</th><th>Winst</th><th>Opgenomen</th><th>Totaal opgenomen</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>
+  `;
+}
+
+// Charts (simple canvas)
+function drawCharts() {
+  drawCapitalChart();
+  drawCategoryChart();
+}
+
+function drawCapitalChart() {
+  const canvas = document.getElementById('chartCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * 2;
+  canvas.height = 500;
+  ctx.scale(2, 2);
+  const W = canvas.offsetWidth, H = 250;
+  ctx.clearRect(0, 0, W, H);
+
+  const sorted = [...trades].filter(t => t.sold).sort((a, b) => a.id - b.id);
+  if (sorted.length < 2) {
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '14px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('Minimaal 2 verkochte items nodig voor grafiek', W / 2, H / 2);
+    return;
+  }
+
+  let capital = startCapital;
+  const points = [{ x: 0, y: capital, label: 'Start' }];
+  sorted.forEach((t, i) => {
+    capital += getProfit(t);
+    points.push({ x: i + 1, y: capital, label: t.product });
+  });
+
+  const maxY = Math.max(...points.map(p => p.y)) * 1.15;
+  const minY = Math.min(0, Math.min(...points.map(p => p.y)));
+  const rangeY = maxY - minY || 1;
+  const pad = { t: 20, r: 20, b: 40, l: 55 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  function toX(i) { return pad.l + (i / (points.length - 1)) * plotW; }
+  function toY(v) { return pad.t + plotH - ((v - minY) / rangeY) * plotH; }
+
+  // Grid
+  ctx.strokeStyle = '#2e3347';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (plotH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    const val = maxY - (rangeY / 4) * i;
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '10px Segoe UI';
+    ctx.textAlign = 'right';
+    ctx.fillText('€' + val.toFixed(0), pad.l - 8, y + 4);
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#3b82f6';
+  ctx.lineWidth = 2;
+  points.forEach((p, i) => {
+    const x = toX(i), y = toY(p.y);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Fill
+  ctx.lineTo(toX(points.length - 1), toY(minY));
+  ctx.lineTo(toX(0), toY(minY));
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.t, 0, H - pad.b);
+  grad.addColorStop(0, 'rgba(59,130,246,0.25)');
+  grad.addColorStop(1, 'rgba(59,130,246,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Points
+  points.forEach((p, i) => {
+    const x = toX(i), y = toY(p.y);
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = p.y >= startCapital ? '#22c55e' : '#ef4444';
+    ctx.fill();
+    ctx.strokeStyle = '#0f1117';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function drawCategoryChart() {
+  const canvas = document.getElementById('categoryChart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * 2;
+  canvas.height = 500;
+  ctx.scale(2, 2);
+  const W = canvas.offsetWidth, H = 250;
+  ctx.clearRect(0, 0, W, H);
+
+  const sold = trades.filter(t => t.sold);
+  if (sold.length === 0) {
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '14px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('Nog geen verkochte items', W / 2, H / 2);
+    return;
+  }
+
+  const cats = {};
+  sold.forEach(t => {
+    if (!cats[t.category]) cats[t.category] = { profit: 0, count: 0 };
+    cats[t.category].profit += getProfit(t);
+    cats[t.category].count++;
+  });
+
+  const entries = Object.entries(cats).sort((a, b) => b[1].profit - a[1].profit);
+  const colors = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#a855f7', '#ec4899', '#f97316', '#06b6d4'];
+  const maxProfit = Math.max(...entries.map(e => Math.abs(e[1].profit))) || 1;
+  const pad = { t: 20, r: 20, b: 10, l: 100 };
+  const barH = Math.min(30, (H - pad.t - pad.b) / entries.length - 8);
+
+  entries.forEach(([cat, data], i) => {
+    const y = pad.t + i * (barH + 8);
+    const w = (Math.abs(data.profit) / maxProfit) * (W - pad.l - pad.r - 80);
+
+    ctx.fillStyle = '#8b8fa3';
+    ctx.font = '11px Segoe UI';
+    ctx.textAlign = 'right';
+    ctx.fillText(cat, pad.l - 10, y + barH / 2 + 4);
+
+    ctx.fillStyle = data.profit >= 0 ? colors[i % colors.length] : '#ef4444';
+    ctx.beginPath();
+    ctx.roundRect(pad.l, y, w, barH, 4);
+    ctx.fill();
+
+    ctx.fillStyle = '#e4e6f0';
+    ctx.textAlign = 'left';
+    ctx.font = '11px Segoe UI';
+    ctx.fillText(`${data.profit >= 0 ? '+' : ''}€${data.profit.toFixed(2)} (${data.count}x)`, pad.l + w + 8, y + barH / 2 + 4);
+  });
+}
+
+// Export CSV
+function exportCSV() {
+  if (trades.length === 0) { alert('Geen data om te exporteren.'); return; }
+  const headers = ['Datum', 'Product', 'Categorie', 'Inkoop', 'InkoopPlatform', 'Verkoop', 'VerkoopPlatform', 'Kosten', 'Winst', 'Status'];
+  const rows = trades.map(t => [
+    t.date, t.product, t.category, t.buyPrice, t.buyPlatform,
+    t.sellPrice || '', t.sellPlatform || '', t.costs,
+    t.sold ? getProfit(t).toFixed(2) : '', t.sold ? 'Verkocht' : 'Voorraad'
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `handels-tracker-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+}
+
+// Init
+render();
+simulate();
+</script>
+</body>
+</html>
