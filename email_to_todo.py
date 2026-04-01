@@ -2,88 +2,28 @@
 """
 Importeer actiepunten uit een e-mail naar Microsoft To Do.
 
-Gebruik:
-    # Vanuit een tekstbestand
+Methode 1 - CSV voor Power Automate (aanbevolen bij geblokkeerde Azure-toegang):
+    python email_to_todo.py acties.txt --csv
+    python email_to_todo.py --stdin --csv
+
+Methode 2 - Direct via Microsoft Graph API:
     python email_to_todo.py acties.txt
-
-    # Plak e-mailtekst via stdin
-    python email_to_todo.py --stdin
-
-    # Met specifieke takenlijst
     python email_to_todo.py acties.txt --list "Projectnaam"
 
-    # Dry-run: laat zien welke taken gevonden worden zonder ze aan te maken
-    python email_to_todo.py acties.txt --dry-run
+Overig:
+    python email_to_todo.py acties.txt --dry-run    # Alleen tonen, niets doen
 
 Vereisten:
-    pip install msal requests click
-
-Authenticatie:
-    Bij eerste gebruik wordt een device code flow gestart.
-    Je logt in via https://microsoft.com/devicelogin met je Microsoft-account.
-    Het token wordt lokaal gecached in .ms_todo_token_cache.json
+    pip install click
+    pip install msal requests   # alleen nodig voor Graph API methode
 """
 
-import json
+import csv
 import re
 import sys
 from pathlib import Path
 
 import click
-import msal
-import requests
-
-# Microsoft Graph API settings
-GRAPH_API = "https://graph.microsoft.com/v1.0"
-CLIENT_ID = "04b07795-a710-4532-b849-46c9bccfb18c"  # Azure CLI public client ID
-SCOPES = ["Tasks.ReadWrite"]
-TOKEN_CACHE_FILE = Path.home() / ".ms_todo_token_cache.json"
-
-
-def get_token_cache():
-    """Load or create MSAL token cache."""
-    cache = msal.SerializableTokenCache()
-    if TOKEN_CACHE_FILE.exists():
-        cache.deserialize(TOKEN_CACHE_FILE.read_text())
-    return cache
-
-
-def save_token_cache(cache):
-    """Persist token cache to disk."""
-    if cache.has_state_changed:
-        TOKEN_CACHE_FILE.write_text(cache.serialize())
-
-
-def authenticate():
-    """Authenticate via device code flow and return access token."""
-    cache = get_token_cache()
-    app = msal.PublicClientApplication(
-        CLIENT_ID,
-        authority="https://login.microsoftonline.com/common",
-        token_cache=cache,
-    )
-
-    # Try silent auth first (cached token)
-    accounts = app.get_accounts()
-    if accounts:
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
-        if result and "access_token" in result:
-            save_token_cache(cache)
-            return result["access_token"]
-
-    # Device code flow
-    flow = app.initiate_device_flow(scopes=SCOPES)
-    if "user_code" not in flow:
-        raise click.ClickException(f"Authenticatie mislukt: {flow.get('error_description', 'onbekende fout')}")
-
-    click.echo(f"\n🔐 {flow['message']}\n")
-    result = app.acquire_token_by_device_flow(flow)
-
-    if "access_token" not in result:
-        raise click.ClickException(f"Authenticatie mislukt: {result.get('error_description', 'onbekende fout')}")
-
-    save_token_cache(cache)
-    return result["access_token"]
 
 
 def parse_tasks(text):
@@ -100,19 +40,17 @@ def parse_tasks(text):
     tasks = []
     in_action_section = False
 
-    # Patterns for section headers that indicate action items follow
     section_pattern = re.compile(
         r"^\s*(actiepunten|acties|actie|taken|to\s*do|action\s*items?|tasks?|todo|opdrachten)\s*[:>\-]?\s*$",
         re.IGNORECASE,
     )
 
-    # Pattern for task lines
     task_pattern = re.compile(
         r"^\s*"
         r"(?:"
-        r"[-*•]\s+"              # bullet: -, *, •
-        r"|\d+[.):\-]\s+"       # numbered: 1. 2) 3: 4-
-        r"|\[[ x]?\]\s+"        # checkbox: [ ], [x]
+        r"[-*•]\s+"
+        r"|\d+[.):\-]\s+"
+        r"|\[[ x]?\]\s+"
         r")"
         r"(.+)",
         re.IGNORECASE,
@@ -123,12 +61,10 @@ def parse_tasks(text):
         if not stripped:
             continue
 
-        # Check if this is an action section header
         if section_pattern.match(stripped):
             in_action_section = True
             continue
 
-        # Check if line matches a task pattern
         match = task_pattern.match(line)
         if match:
             task_text = match.group(1).strip()
@@ -136,13 +72,10 @@ def parse_tasks(text):
                 tasks.append(task_text)
             continue
 
-        # If we're in an action section, only continue if line looks like a task
         if in_action_section and stripped:
-            # A non-bullet line after a blank line or without task formatting ends the section
             if not task_pattern.match(line):
                 in_action_section = False
 
-    # Deduplicate while preserving order
     seen = set()
     unique_tasks = []
     for t in tasks:
@@ -154,10 +87,67 @@ def parse_tasks(text):
     return unique_tasks
 
 
+def export_csv(tasks, output_path):
+    """Export tasks to CSV for Power Automate import."""
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["Taak", "Status", "Prioriteit"])
+        for task in tasks:
+            writer.writerow([task, "Niet gestart", "Normaal"])
+    return output_path
+
+
+# --- Graph API methode (optioneel) ---
+
+GRAPH_API = "https://graph.microsoft.com/v1.0"
+CLIENT_ID = "04b07795-a710-4532-b849-46c9bccfb18c"
+SCOPES = ["Tasks.ReadWrite"]
+TOKEN_CACHE_FILE = Path.home() / ".ms_todo_token_cache.json"
+
+
+def authenticate():
+    """Authenticate via device code flow and return access token."""
+    import msal
+
+    cache = msal.SerializableTokenCache()
+    if TOKEN_CACHE_FILE.exists():
+        cache.deserialize(TOKEN_CACHE_FILE.read_text())
+
+    app = msal.PublicClientApplication(
+        CLIENT_ID,
+        authority="https://login.microsoftonline.com/common",
+        token_cache=cache,
+    )
+
+    accounts = app.get_accounts()
+    if accounts:
+        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        if result and "access_token" in result:
+            if cache.has_state_changed:
+                TOKEN_CACHE_FILE.write_text(cache.serialize())
+            return result["access_token"]
+
+    flow = app.initiate_device_flow(scopes=SCOPES)
+    if "user_code" not in flow:
+        raise click.ClickException(f"Authenticatie mislukt: {flow.get('error_description', 'onbekende fout')}")
+
+    click.echo(f"\n{flow['message']}\n")
+    result = app.acquire_token_by_device_flow(flow)
+
+    if "access_token" not in result:
+        raise click.ClickException(f"Authenticatie mislukt: {result.get('error_description', 'onbekende fout')}")
+
+    if cache.has_state_changed:
+        TOKEN_CACHE_FILE.write_text(cache.serialize())
+    return result["access_token"]
+
+
 class TodoClient:
     """Microsoft To Do API client."""
 
     def __init__(self, token):
+        import requests
+        self.requests = requests
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {token}",
@@ -175,38 +165,27 @@ class TodoClient:
         return resp.json()
 
     def get_lists(self):
-        """Get all task lists."""
         return self._get("/me/todo/lists")["value"]
 
     def find_or_create_list(self, name):
-        """Find a task list by name, or create it."""
         lists = self.get_lists()
         for lst in lists:
             if lst["displayName"].lower() == name.lower():
                 return lst["id"]
-
         result = self._post("/me/todo/lists", {"displayName": name})
         return result["id"]
 
     def get_default_list(self):
-        """Get the default 'Tasks' list."""
         lists = self.get_lists()
-        # The default list usually has wellknownListName == "defaultList"
         for lst in lists:
             if lst.get("wellknownListName") == "defaultList":
                 return lst["id"]
-        # Fallback to first list
         return lists[0]["id"] if lists else None
 
-    def create_task(self, list_id, title, body=None):
-        """Create a single task in a list."""
-        task_data = {"title": title}
-        if body:
-            task_data["body"] = {"content": body, "contentType": "text"}
-        return self._post(f"/me/todo/lists/{list_id}/tasks", task_data)
+    def create_task(self, list_id, title):
+        return self._post(f"/me/todo/lists/{list_id}/tasks", {"title": title})
 
     def create_tasks_batch(self, list_id, task_titles):
-        """Create multiple tasks. Returns list of created tasks."""
         created = []
         errors = []
         for i, title in enumerate(task_titles, 1):
@@ -214,7 +193,7 @@ class TodoClient:
                 task = self.create_task(list_id, title)
                 created.append(task)
                 click.echo(f"  [{i}/{len(task_titles)}] {title}")
-            except requests.HTTPError as e:
+            except self.requests.HTTPError as e:
                 errors.append((title, str(e)))
                 click.echo(f"  [{i}/{len(task_titles)}] FOUT: {title} - {e}")
         return created, errors
@@ -223,9 +202,11 @@ class TodoClient:
 @click.command()
 @click.argument("file", required=False, type=click.Path(exists=True))
 @click.option("--stdin", "use_stdin", is_flag=True, help="Lees e-mailtekst van stdin")
-@click.option("--list", "list_name", default=None, help="Naam van de takenlijst (wordt aangemaakt als die niet bestaat)")
+@click.option("--csv", "use_csv", is_flag=True, help="Exporteer naar CSV (voor Power Automate)")
+@click.option("--output", "-o", default=None, help="Output CSV-bestandsnaam")
+@click.option("--list", "list_name", default=None, help="Naam van de takenlijst (Graph API)")
 @click.option("--dry-run", is_flag=True, help="Toon gevonden taken zonder ze aan te maken")
-def main(file, use_stdin, list_name, dry_run):
+def main(file, use_stdin, use_csv, output, list_name, dry_run):
     """Importeer actiepunten uit een e-mail naar Microsoft To Do."""
 
     # Read input
@@ -257,12 +238,25 @@ def main(file, use_stdin, list_name, dry_run):
         click.echo("\n(Dry-run: geen taken aangemaakt)")
         return
 
-    # Authenticate
+    # CSV export voor Power Automate
+    if use_csv:
+        csv_path = output or (Path(file).stem + "_taken.csv" if file else "taken.csv")
+        export_csv(tasks, csv_path)
+        click.echo(f"\nCSV opgeslagen: {csv_path}")
+        click.echo("\nVolgende stappen in Power Automate:")
+        click.echo("  1. Ga naar make.powerautomate.com")
+        click.echo("  2. Maak een 'Instant cloud flow' (handmatig triggeren)")
+        click.echo("  3. Voeg de Excel-connector toe om rijen uit het CSV te lezen")
+        click.echo("  4. Voeg 'Apply to each' toe met de actie 'Microsoft To Do - Taak maken'")
+        click.echo("  5. Koppel het veld 'Taak' aan de taaknaam")
+        click.echo("  6. Draai de flow")
+        return
+
+    # Graph API methode
     click.echo("\nVerbinden met Microsoft To Do...")
     token = authenticate()
     client = TodoClient(token)
 
-    # Get or create list
     if list_name:
         list_id = client.find_or_create_list(list_name)
         click.echo(f"Takenlijst: {list_name}")
@@ -270,11 +264,9 @@ def main(file, use_stdin, list_name, dry_run):
         list_id = client.get_default_list()
         click.echo("Takenlijst: Taken (standaard)")
 
-    # Create tasks
     click.echo(f"\n{len(tasks)} taken aanmaken...\n")
     created, errors = client.create_tasks_batch(list_id, tasks)
 
-    # Summary
     click.echo(f"\nKlaar! {len(created)} taken aangemaakt.", nl=False)
     if errors:
         click.echo(f" ({len(errors)} fouten)")
