@@ -68,7 +68,11 @@ def parse_tasks(text):
         match = task_pattern.match(line)
         if match:
             task_text = match.group(1).strip()
-            if task_text and len(task_text) > 2:
+            # Skip lines that look like section headers rather than tasks
+            if task_text and len(task_text) > 2 and not re.match(
+                r"^(complete|volledige|snelle)?\s*(actielijst|takenlijst|samenvatting|overzicht)",
+                task_text, re.IGNORECASE,
+            ):
                 tasks.append(task_text)
             continue
 
