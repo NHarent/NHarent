@@ -51,7 +51,7 @@ def transcribe_audio(
     language: str = "nl",
     device: str | None = None,
     batch_size: int = 8,
-) -> dict:
+) -> tuple[dict, any]:
     """Transcribeer audiobestand met WhisperX."""
     if device is None:
         device = get_device()
@@ -178,6 +178,32 @@ def segments_to_markdown(segments: list[dict], audio_path: str) -> str:
     return "\n".join(lines)
 
 
+def segments_to_json(segments: list[dict], audio_path: str) -> str:
+    """Converteer diarized segmenten naar JSON."""
+    filename = Path(audio_path).stem
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    data = {
+        "filename": filename,
+        "source": Path(audio_path).name,
+        "date": now,
+        "segments": [],
+    }
+
+    for seg in segments:
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        data["segments"].append({
+            "speaker": seg.get("speaker", "ONBEKEND"),
+            "start": seg.get("start", 0),
+            "end": seg.get("end", 0),
+            "text": text,
+        })
+
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # Samenvatting via Anthropic
 # ---------------------------------------------------------------------------
@@ -223,7 +249,8 @@ def generate_summary(transcript_text: str, api_key: str) -> str:
 @click.option("--max-speakers", type=int, default=None, help="Maximum aantal sprekers")
 @click.option("--summarize", is_flag=True, help="Voeg AI-samenvatting toe via Anthropic API")
 @click.option("--anthropic-key", envvar="ANTHROPIC_API_KEY", default=None, help="Anthropic API key (of ANTHROPIC_API_KEY env)")
-@click.option("--output", "-o", "output_path", default=None, help="Output pad (.md). Default: zelfde naam als input")
+@click.option("--format", "output_format", type=click.Choice(["md", "json"], case_sensitive=False), default="md", help="Output formaat: md (Markdown) of json")
+@click.option("--output", "-o", "output_path", default=None, help="Output pad (.md/.json). Default: zelfde naam als input")
 @click.option("--keep-audio", is_flag=True, help="Verwijder audiobestand NIET na succesvolle run")
 @click.option("--batch-size", type=int, default=8, help="Batch size voor transcriptie")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
@@ -236,6 +263,7 @@ def main(
     max_speakers: int | None,
     summarize: bool,
     anthropic_key: str | None,
+    output_format: str,
     output_path: str | None,
     keep_audio: bool,
     batch_size: int,
@@ -285,23 +313,36 @@ def main(
             max_speakers=max_speakers,
         )
 
-    # 3. Markdown genereren
+    # 3. Output genereren
     segments = result.get("segments", [])
     if not segments:
         click.echo("Geen segmenten gevonden in de transcriptie.", err=True)
         sys.exit(1)
 
-    markdown = segments_to_markdown(segments, audio_path)
+    if output_format == "json":
+        output_text = segments_to_json(segments, audio_path)
+        default_suffix = ".json"
 
-    # 4. Optionele samenvatting
-    if summarize:
-        summary = generate_summary(markdown, anthropic_key)
-        markdown = f"{markdown}\n\n---\n\n## Samenvatting\n\n{summary}\n"
+        # 4. Optionele samenvatting (toevoegen als veld in JSON)
+        if summarize:
+            markdown_for_summary = segments_to_markdown(segments, audio_path)
+            summary = generate_summary(markdown_for_summary, anthropic_key)
+            data = json.loads(output_text)
+            data["summary"] = summary
+            output_text = json.dumps(data, ensure_ascii=False, indent=2)
+    else:
+        output_text = segments_to_markdown(segments, audio_path)
+        default_suffix = ".md"
+
+        # 4. Optionele samenvatting
+        if summarize:
+            summary = generate_summary(output_text, anthropic_key)
+            output_text = f"{output_text}\n\n---\n\n## Samenvatting\n\n{summary}\n"
 
     # 5. Schrijf output
     if output_path is None:
-        output_path = str(Path(audio_path).with_suffix(".md"))
-    Path(output_path).write_text(markdown, encoding="utf-8")
+        output_path = str(Path(audio_path).with_suffix(default_suffix))
+    Path(output_path).write_text(output_text, encoding="utf-8")
     logger.info("Transcript opgeslagen: %s", output_path)
 
     # 6. Cleanup
