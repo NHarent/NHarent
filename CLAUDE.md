@@ -28,10 +28,18 @@
 - Apple Silicon (MPS) ondersteuning met CPU fallback bij GPU-code
 - Geheugenoptimalisatie: cache opruimen, batch sizes beperken op MPS
 
+### Twee platforms
+
+- **macOS Apple Silicon** (persoonlijk): hier wordt ontwikkeld, Python/CLI tools draaien hier
+- **Corporale Dell Windows** (VWS): volledig vergrendeld, geen admin-rechten, geen installaties mogelijk
+  - Tools voor de Dell moeten **browser-based** zijn: single HTML-bestanden die zonder server/installatie werken
+  - Denk aan: vanilla HTML/CSS/JS, drag-and-drop, client-side processing
+  - Geen Node, geen Python, geen executables — alleen wat een browser kan
+
 ## Technische stack
 
 - **Python**: click, pathlib, logging, torch, anthropic SDK
-- **Frontend**: vanilla HTML/CSS/JS — geen frameworks tenzij expliciet gevraagd
+- **Frontend/Dell tools**: vanilla HTML/CSS/JS in een enkel bestand — geen frameworks, geen server, moet draaien op een vergrendelde Windows-machine
 - **AI/ML**: WhisperX, Pyannote, Anthropic Claude API
 - **Platform**: macOS Apple Silicon primair, cross-platform als bonus
 - Gebruik altijd het nieuwste Claude model (`claude-sonnet-4-20250514` of nieuwer) bij Anthropic API calls
